@@ -7,16 +7,18 @@ snakelength	equ	$30	; current length of the snake
 snakeoff	equ	$31	; the position of  the snake in x
 snakebyte	equ	$32	; the position of the snake in y
 snakedir	equ	$33	; which way the snake is heading
-scorelo		equ	$34	; the lower byte of the score
-scorehi		equ	$35	; the higher byte of the score
-pieceoff	equ	$36	; the the dataoffset for the piece
-piecebyte	equ	$37	; the pixel in a byte
-seed		equ	$38	; random seed
-snakeeoff	equ	$39	; endpoint offset
-snakeebyte	equ	$3A	; endpoint byte
-snakegleft	equ	$3B	; how many segments the snake has left to grow
-snakegrow	equ	$3C	; how many segments the snake should grow
-snakebody	equ	$3D	; the body of the snake
+snakenewdir	equ	$34	; the new direction of the snake
+scorelo		equ	$35	; the lower byte of the score
+scorehi		equ	$36	; the higher byte of the score
+pieceoff	equ	$37	; the the dataoffset for the piece
+piecebyte	equ	$38	; the pixel in a byte
+seed		equ	$39	; random seed
+snakeeoff	equ	$3A	; endpoint offset
+snakeebyte	equ	$3B	; endpoint byte
+speed		equ	$3C	; speed of the game
+snakegleft	equ	$3D	; how many segments the snake has left to grow
+snakegrow	equ	$3E	; how many segments the snake should grow
+snakebody	equ	$3F	; the body of the snake
 
 
 	; interrupts
@@ -67,9 +69,11 @@ nop_irq:
 	reti
 
 	.org	$1f0
-goodbye:	
+goodbye:
+	; TODO: this really should quit the game but untill all the bugs are fixed....
 	not1	ext,0
 	jmpf	goodbye
+;	jmpf	startgame
 
 	; Header
 	.org	$200
@@ -119,13 +123,16 @@ startgame:
 	st	scorehi
 	st	scorelo
 
-	; ******************************************
-	; ******************************************
-;	mov	#255,scorelo
-;	mov	#1,scorehi
-	; ******************************************
-	; ******************************************
+	mov	#50,speed	; speed of the game
 
+	mov	#snakebody,2	; reset movement history
+	mov	#0,@R2
+	inc	2
+	mov	#0,@r2
+	inc	2
+	mov	#0,@R2
+	inc	2
+	mov	#0,@R2
 
 	mov	#1, snakelength	; begin with one segment
 	mov	#3, snakegleft	; and let it grow to 3
@@ -136,27 +143,42 @@ startgame:
 	mov	#3, snakebyte
 	mov	#%11000000, snakeebyte
 
+	ld	snakebyte	; avoid the bugging pixel
+	st	c
+	ld	snakeoff
+	st	b
+	call	putpixel
+
 	call	updatesnake
 	call	updatepiece	; put the piece at a random location
-	mov	#20,2		; how much to sleep
+	ld	speed
+	st	2
 	mov	#1,3
 gameloop:
-	call	getkeys		; check for SLEEP, MODE, docking status
+	call	getkeys		; check button status
 	bn	acc,0,_glup
 	bn	acc,1,_gldown
 	bn	acc,2,_glleft
 	bn	acc,3,_glright
 	br	_glcont
 _glright:
+	ld	snakedir
+	be	#0, _glcont	
 	mov	#2, snakedir
 	br	_glcont
 _glup:
+	ld	snakedir
+	be	#3, _glcont
 	mov	#1, snakedir
 	br	_glcont
 _gldown:
+	ld	snakedir
+	be	#1, _glcont
 	mov	#3, snakedir
 	br	_glcont
 _glleft:
+	ld	snakedir
+	be	#2, _glcont
 	mov	#0, snakedir
 	br	_glcont
 _glcont:
@@ -164,15 +186,17 @@ _glcont:
 	ld	2		; load counter
 	bnz	gameloop
 	call	updatescore	; draw the score
-	mov	#20,2		; how much to sleep
+	ld	speed		; how much to sleep
+	st	2
 	dec	3
 	ld	3
 	bnz	gameloop
 	mov	#1,3
+
 	call	updatesnake	; repaint snake
-	ld	snakelength	; load snake length (0 if dead)
+	ld	snakelength	; load snakelength (0 if dead)
 	bnz	gameloop	; check if still playing
-	jmp	quit		; everything played
+	jmp	startgame	; everything played
 
 	;******************************************************************************************
 	; Function: drawscoreline
@@ -392,9 +416,12 @@ _scoredec:
 	subc	#0
 	st	scorehi
 _scoreskip:
-	ld	scorelo
+	ld	snakelength
 	st	c
-	ld	scorehi
+	mov	#0,acc
+;	ld	scorelo
+;	st	c
+;	ld	scorehi
 	mov	#1,xbnk
 	call	drawdig2
 	mov	#0,xbnk
@@ -547,9 +574,9 @@ updatesnake:
 	push	2
 	push	3
 
-	clr1	ocr,5		; put cpu in 600khz mode
+	clr1	ocr,5			; put cpu in 600khz mode
 
-	ld	snakeoff	; update the "head"-pixel
+	ld	snakeoff		; update the "head"-pixel
 	st	b
 	ld	snakebyte
 	st	c
@@ -561,16 +588,16 @@ updatesnake:
 	ld	c
 	st	snakebyte
 
-	ld	snakeoff
+	ld	snakeoff		; check if the snake ate the food
 	bne	pieceoff, _upsnb
 	ld	snakebyte
 	bne	piecebyte, _upsnb
 
-	inc	snakegrow
+	inc	snakegrow		; if so make it grow
 	ld	snakegrow
 	st	snakegleft
 
-	st	c
+	st	c			; and increase the score
 	mov	#0, acc
 	mov	#100, b
 	mul
@@ -582,13 +609,23 @@ updatesnake:
 	addc	#0
 	st	scorehi
 
+	ld	speed			; and increase the speed (by decreasing the sleep amount)
+	sub	#1
+	st	speed
+
 	call	updatepiece
 	br	_upspskip
 _upsnb:
+	call	testpixel		; check for collusion
+	bz	_upsalive
+
+	mov	#0,snakelength
+	jmpf	_upsend
+
+_upsalive:
 	call	putpixel
 _upspskip:
 	ld	snakelength	; update "body"
-;	add	#1
 
 	st	c		; calculate how many bytes is used for the body
 	mov	#0, acc
@@ -601,7 +638,7 @@ _upsloop:
 	st	2		; number of bytes
 	inc	2
 
-	mov	#$3D, 3		; address of the snakebody
+	mov	#snakebody, 3	; address of the snakebody
 
 	ld	b
 	be	#1, _upsskip1
@@ -636,7 +673,7 @@ _upsskip:
 	bnz	_upsgrow
 
 
-	mov	#$3D, acc	; get byteoffset
+	mov	#snakebody, acc	; get byteoffset
 	add	c		; "c" has how many bytes the snake uses (-1)
 	st	2
 
