@@ -1,6 +1,26 @@
-	; vmu-snake by Fredrik Ehnbom
+	;------------------------------------------------------------------------------------
+	; VMU-snake Copyright (c) 2001-2002 Fredrik Ehnbom
+	;------------------------------------------------------------------------------------
+	;
+	; Some source comes from Marcus Comstedt
+	; http://mc.pp.se/dc/vms/
+	;
+	; Features:
+	;  - a cool snake game for your VMU :)
+	;  - the snake grows longer and longer for each foodpiece it eats
+	;  - it also moves faster and faster for each piece
+	;
+	; Known Bugs:
+	;  - when the snake gets "long enough" the game will exit (don't know why)
+	;  - the snake can move out of the screen to the left
+	;
+	; Here we go!
+	;
+	;------------------------------------------------------------------------------------
 
 
+	; include the "Special Function Register"-specification file created by Marcus
+	; (described at http://mc.pp.se/dc/vms/sfr.html)
 	.include "sfr.i"
 
 snakelength	equ	$30	; current length of the snake
@@ -70,17 +90,15 @@ nop_irq:
 
 	.org	$1f0
 goodbye:
-	; TODO: this really should quit the game but untill all the bugs are fixed....
 	not1	ext,0
 	jmpf	goodbye
-;	jmpf	startgame
 
 	; Header
 	.org	$200
 	; Name
-	.byte	"VMS-Snake       "
+	.byte	"VMU-Snake       "
 	; Description
-	.byte	"VMS-Snake by Fredrik Ehnbom     "
+	.byte	"VMU-Snake by Fredrik Ehnbom     "
 	; Creator application
 	.byte	"aslc86k         "
 	; Icon header: number of frames
@@ -123,12 +141,12 @@ startgame:
 	st	scorehi
 	st	scorelo
 
-	mov	#50,speed	; speed of the game
+	mov	#15,speed	; speed of the game
 
 	mov	#snakebody,2	; reset movement history
 	mov	#0,@R2
 	inc	2
-	mov	#0,@r2
+	mov	#0,@R2
 	inc	2
 	mov	#0,@R2
 	inc	2
@@ -136,8 +154,9 @@ startgame:
 
 	mov	#1, snakelength	; begin with one segment
 	mov	#3, snakegleft	; and let it grow to 3
-	mov	#0, snakegrow	;
+	mov	#0, snakegrow
 	mov	#0, snakedir	; move left
+	mov	#0, snakenewdir
 	mov	#2, snakeoff
 	mov	#3, snakeeoff
 	mov	#3, snakebyte
@@ -164,22 +183,22 @@ gameloop:
 _glright:
 	ld	snakedir
 	be	#0, _glcont	
-	mov	#2, snakedir
+	mov	#2, snakenewdir
 	br	_glcont
 _glup:
 	ld	snakedir
 	be	#3, _glcont
-	mov	#1, snakedir
+	mov	#1, snakenewdir
 	br	_glcont
 _gldown:
 	ld	snakedir
 	be	#1, _glcont
-	mov	#3, snakedir
+	mov	#3, snakenewdir
 	br	_glcont
 _glleft:
 	ld	snakedir
 	be	#2, _glcont
-	mov	#0, snakedir
+	mov	#0, snakenewdir
 	br	_glcont
 _glcont:
 	dec	2		; decrease counter
@@ -193,12 +212,18 @@ _glcont:
 	bnz	gameloop
 	mov	#1,3
 
+	ld	snakenewdir	; update snakedirection
+	st	snakedir	; if it is not done this way we will be able to kill the snake by for example,
+				; if the snake is going to the left, press first up and then right quickly.
+				; one might call this an anti-selfcollusion-fix :-)
+
 	call	updatesnake	; repaint snake
 	ld	snakelength	; load snakelength (0 if dead)
 	bnz	gameloop	; check if still playing
-	jmp	startgame	; everything played
+	jmp	startgame	; everything played, so for now just restart
+				; (Game Over screen might come later)
 
-	;******************************************************************************************
+	;*****************************************************************************************
 	; Function: drawscoreline
 	;
 	; draws a line which separates the score count from the rest of the gamefield
@@ -272,6 +297,14 @@ _ppput:
 	;
 	; gets a random value and scales it (division)
 	;
+	; Inputs:
+	;	b = scalevalue
+	;
+	; Outputs:
+	;	acc = scaled random value
+	;
+	; Scratch:
+	;	c
 	;*****************************************************************************************
 getpieceval:
 	call	random		; get a random value between 0 and 255
@@ -346,7 +379,7 @@ _uploop2:
 	st	c
 	ld	pieceoff
 	st	b
-	call	testpixel
+	call	testpixel	; test if the piece is on the snake
 	bnz	_upredo		; the piece was on the snake... do everything again...
 
 	call	putpixel
@@ -416,12 +449,9 @@ _scoredec:
 	subc	#0
 	st	scorehi
 _scoreskip:
-	ld	snakelength
+	ld	scorelo
 	st	c
-	mov	#0,acc
-;	ld	scorelo
-;	st	c
-;	ld	scorehi
+	ld	scorehi
 	mov	#1,xbnk
 	call	drawdig2
 	mov	#0,xbnk
@@ -520,11 +550,11 @@ _ddloop:			; start drawing to screen
 	;
 	; Inputs:
 	;	acc = holds information in which direction the snake moves
-	;	a = the old byteoffset
-	;	b = the old bytevalue
+	;	b = the old byteoffset
+	;	c = the old bytevalue
 	; Outputs:
-	;	a = the new byteoffset
-	;	b = the new byte
+	;	b = the new byteoffset
+	;	c = the new byte
 	; Scratch:
 	; 	acc
 	;*****************************************************************************************
@@ -536,6 +566,9 @@ _gnpdown:
 	ld	b
 	add	#16
 	st	b
+	mov	#0, acc
+	addc	#0
+	bnz	_gnpdie
 	br	_gnpend
 _gnpleft:
 	ld	c
@@ -549,6 +582,9 @@ _gnpup:
 	ld	b
 	sub	#16
 	st	b
+	mov	#0, acc
+	addc	#0
+	bnz	_gnpdie
 	br	_gnpend
 _gnpright:
 	ld	c
@@ -558,7 +594,11 @@ _gnpright:
 	bne	#%11000000, _gnpend
 	inc	b
 	br	_gnpend
+_gnpdie:
+	mov	#0,acc
+	ret
 _gnpend:
+	mov	#1,acc
 	ret
 
 	;*****************************************************************************************
@@ -582,7 +622,12 @@ updatesnake:
 	st	c
 	ld	snakedir
 	call	getnextpixel
+	bnz	_upsfood
 
+	mov	#0,snakelength		; snake is dead...
+	jmpf	_upsend
+
+_upsfood:
 	ld	b
 	st	snakeoff
 	ld	c
@@ -595,6 +640,7 @@ updatesnake:
 
 	inc	snakegrow		; if so make it grow
 	ld	snakegrow
+	add	snakegleft
 	st	snakegleft
 
 	st	c			; and increase the score
