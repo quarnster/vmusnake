@@ -11,8 +11,12 @@
 	;  - it also moves faster and faster for each piece
 	;
 	; Known Bugs:
-	;  - when the snake gets "long enough" the game will exit (don't know why)
 	;  - the snake can move out of the screen to the left
+	;
+	; Todo:
+	;  - "press a+b to start game"-screen
+	;  - game over screen
+	;  - highscore list??
 	;
 	; Here we go!
 	;
@@ -42,8 +46,8 @@ snakebody	equ	$3F	; the body of the snake
 
 
 	; interrupts
-	.org 0 		; reset
-	jmpf start
+	.org	0 		; reset
+	jmpf	start
 
 	; INT0 interrupt (external)
 	.org	$3
@@ -126,11 +130,11 @@ start:
 	clr1	p1,7		; ???
 	mov	#$ff,p3		; enable pull-ups on P3 (buttons)
 
-	clr1 psw,1		; Get random seed from current minute and
-	ld $1c			; second system variables
-	xor $1d
-	set1 psw,1
-	st seed
+	clr1	psw,1		; Get random seed from current minute and
+	ld	$1c		; second system variables
+	xor	$1d
+	set1	psw,1
+	st	seed
 
 	set1	ie,7		; enable all irq
 startgame:
@@ -141,20 +145,19 @@ startgame:
 	st	scorehi
 	st	scorelo
 
-	mov	#15,speed	; speed of the game
+	mov	#30,speed	; speed of the game
 
-	mov	#snakebody,2	; reset movement history
-	mov	#0,@R2
-	inc	2
-	mov	#0,@R2
-	inc	2
-	mov	#0,@R2
-	inc	2
-	mov	#0,@R2
+	mov	#snakebody,0	; reset movement history
+	mov	#1,acc
+.clearloop:
+	mov	#0,@R0
+	inc	0
+	dec	acc
+	bnz	.clearloop
 
 	mov	#1, snakelength	; begin with one segment
-	mov	#3, snakegleft	; and let it grow to 3
-	mov	#0, snakegrow
+	mov	#2, snakegleft	; and let it grow to 3
+	mov	#1, snakegrow
 	mov	#0, snakedir	; move left
 	mov	#0, snakenewdir
 	mov	#2, snakeoff
@@ -175,32 +178,32 @@ startgame:
 	mov	#1,3
 gameloop:
 	call	getkeys		; check button status
-	bn	acc,0,_glup
-	bn	acc,1,_gldown
-	bn	acc,2,_glleft
-	bn	acc,3,_glright
-	br	_glcont
-_glright:
+	bn	acc,0,.up
+	bn	acc,1,.down
+	bn	acc,2,.left
+	bn	acc,3,.right
+	br	.cont
+.right:
 	ld	snakedir
-	be	#0, _glcont	
+	be	#0, .cont
 	mov	#2, snakenewdir
-	br	_glcont
-_glup:
+	br	.cont
+.up:
 	ld	snakedir
-	be	#3, _glcont
+	be	#3, .cont
 	mov	#1, snakenewdir
-	br	_glcont
-_gldown:
+	br	.cont
+.down:
 	ld	snakedir
-	be	#1, _glcont
+	be	#1, .cont
 	mov	#3, snakenewdir
-	br	_glcont
-_glleft:
+	br	.cont
+.left:
 	ld	snakedir
-	be	#2, _glcont
+	be	#2, .cont
 	mov	#0, snakenewdir
-	br	_glcont
-_glcont:
+	br	.cont
+.cont:
 	dec	2		; decrease counter
 	ld	2		; load counter
 	bnz	gameloop
@@ -236,8 +239,8 @@ drawscoreline:
 	push	xbnk		; store LCD banking register
 	push	2		; used as counter
 	mov	#0,xbnk		; LCD bank 0
-_dcl:	mov	#$84,2		; init counter
-_dcl2:	mov	#%00000011,@R2	; clear byte in LCD ram
+.dcl:	mov	#$84,2		; init counter
+.dcl2:	mov	#%00000011,@R2	; clear byte in LCD ram
 	ld	2
 	add	#6		; forward one row
 	st	2
@@ -245,11 +248,11 @@ _dcl2:	mov	#%00000011,@R2	; clear byte in LCD ram
 	ld	2
 	add	#10		; forward one row
 	st	2
-	bn	psw,cy,_dcl2	; test for end of LCD bank
-	bp	xbnk,0,_dcend	; skip to end if last LCD bank
+	bn	psw,cy,.dcl2	; test for end of LCD bank
+	bp	xbnk,0,.end	; skip to end if last LCD bank
 	mov	#1,xbnk		; continue in LCD bank 1
-	br	_dcl		; start again
-_dcend:	pop	2		; restore R2
+	br	.dcl		; start again
+.end:	pop	2		; restore R2
 	pop	xbnk		; restore LCD bank
 	pop	acc		; restore acc
 	pop	ocr		; restore oscillator
@@ -271,13 +274,13 @@ _dcend:	pop	2		; restore R2
 putpixel:
 	ld	b
 	sub	#128
-	bp	psw,cy,_ppb0	; test if the carry-bit is set
+	bp	psw,cy,.bank0	; test if the carry-bit is set
 	mov	#1,xbnk		; if it is not, choose xbank 1
-	br	_ppput
-_ppb0:
+	br	.put
+.bank0:
 	add	#128		; add the 128 we subtracted in the beginning
 	mov	#0,xbnk		; choose xbank 0
-_ppput:
+.put:
 	add	#$80
 	st	2
 	ld	c
@@ -326,7 +329,7 @@ updatepiece:
 	push	2
 
 	clr1	ocr,5		; put cpu in 600khz mode
-_upredo:
+.redo:
 	mov	#16, b		; scalevalue for "y"-offset to loose accuracy
 	call	getpieceval
 
@@ -352,35 +355,35 @@ _upredo:
 	st	pieceoff
 
 	ld	c		; now calculate how the byte should look
-	bz	_upskip
-_uploop1:
+	bz	.skip
+.loop1:
 	ld	2		; "2" has our pixelposition in x
 	sub	#4
 	st	2
 	dec	c
 	ld	c
-	bnz	_uploop1
+	bnz	.loop1
 
-_upskip:
+.skip:
 	inc	2
 	ld	2
 
 	mov	#%00000011, piecebyte
-_uploop2:
+.loop2:
 	ld	piecebyte
 	ror
 	ror
 	st	piecebyte
 	dec	2
 	ld	2
-	bnz	_uploop2
+	bnz	.loop2
 
 	ld	piecebyte	; now get ready to put the pixel on the screen
 	st	c
 	ld	pieceoff
 	st	b
 	call	testpixel	; test if the piece is on the snake
-	bnz	_upredo		; the piece was on the snake... do everything again...
+	bnz	.redo		; the piece was on the snake... do everything again...
 
 	call	putpixel
 
@@ -408,14 +411,14 @@ testpixel:
 	push	2
 	ld	b
 	sub	#128
-	bp	psw,cy,_tpb0
+	bp	psw,cy,.bank0
 	mov	#1,xbnk
-	br	_tptest
-_tpb0:
+	br	.test
+.bank0:
 	add	#128
 	st	b
 	mov	#0,xbnk
-_tptest:
+.test:
 	add	#$80
 	st	2
 	ld	@R2
@@ -438,17 +441,17 @@ updatescore:
 	push	2
 	push	c
 	ld	scorehi		; if the score is 0 then don't decrease it
-	bnz	_scoredec
+	bnz	.decrease
 	ld	scorelo
-	bz	_scoreskip
-_scoredec:
+	bz	.skip
+.decrease:
 	ld	scorelo
 	sub	#1		; "dec" does not affect any psw-flags 
 	st	scorelo		; that is why sub has to be used
 	ld	scorehi
 	subc	#0
 	st	scorehi
-_scoreskip:
+.skip:
 	ld	scorelo
 	st	c
 	ld	scorehi
@@ -514,7 +517,7 @@ drawdigit:
 	mul
 	ld	c
 	st	b
-_ddloop:			; start drawing to screen
+.loop:			; start drawing to screen
 	ld	b
 	ldc
 	st	@R2
@@ -531,7 +534,7 @@ _ddloop:			; start drawing to screen
 	inc	b		; I do not branch earlier
 	ld	b
 	and	#7
-	bnz	_ddloop
+	bnz	.loop
 	pop	c
 	pop	acc
 	pop	trh
@@ -559,45 +562,45 @@ _ddloop:			; start drawing to screen
 	; 	acc
 	;*****************************************************************************************
 getnextpixel:
-	be	#0, _gnpleft
-	be	#1, _gnpup
-	be	#2, _gnpright
-_gnpdown:
+	be	#0, .left
+	be	#1, .up
+	be	#2, .right
+.down:
 	ld	b
 	add	#16
 	st	b
 	mov	#0, acc
 	addc	#0
-	bnz	_gnpdie
-	br	_gnpend
-_gnpleft:
+	bnz	.die
+	br	.end
+.left:
 	ld	c
 	rol
 	rol
 	st	c
-	bne	#%00000011, _gnpend
+	bne	#%00000011, .end
 	dec	b
-	br	_gnpend
-_gnpup:
+	br	.end
+.up:
 	ld	b
 	sub	#16
 	st	b
 	mov	#0, acc
 	addc	#0
-	bnz	_gnpdie
-	br	_gnpend
-_gnpright:
+	bnz	.die
+	br	.end
+.right:
 	ld	c
 	ror
 	ror
 	st	c
-	bne	#%11000000, _gnpend
+	bne	#%11000000, .end
 	inc	b
-	br	_gnpend
-_gnpdie:
+	br	.end
+.die:
 	mov	#0,acc
 	ret
-_gnpend:
+.end:
 	mov	#1,acc
 	ret
 
@@ -613,6 +616,8 @@ updatesnake:
 	push	c
 	push	2
 	push	3
+	push	0
+	push	1
 
 	clr1	ocr,5			; put cpu in 600khz mode
 
@@ -622,31 +627,35 @@ updatesnake:
 	st	c
 	ld	snakedir
 	call	getnextpixel
-	bnz	_upsfood
+	bnz	.food
 
 	mov	#0,snakelength		; snake is dead...
-	jmpf	_upsend
+	jmpf	.end
 
-_upsfood:
+.food:
 	ld	b
 	st	snakeoff
 	ld	c
 	st	snakebyte
 
 	ld	snakeoff		; check if the snake ate the food
-	bne	pieceoff, _upsnb
+	bne	pieceoff, .alivetest
 	ld	snakebyte
-	bne	piecebyte, _upsnb
+	bne	piecebyte, .alivetest
 
 	inc	snakegrow		; if so make it grow
 	ld	snakegrow
 	add	snakegleft
 	st	snakegleft
 
-	st	c			; and increase the score
+	ld	snakegrow		; and increase the score
+	st	c
 	mov	#0, acc
-	mov	#100, b
+	mov	#50, b
 	mul
+
+	add	scorehi
+	st	scorehi
 
 	ld	scorelo
 	add	c
@@ -655,22 +664,23 @@ _upsfood:
 	addc	#0
 	st	scorehi
 
-	ld	speed			; and increase the speed (by decreasing the sleep amount)
-	sub	#1
-	st	speed
+	ld	speed
+	be	#1,.speedskip
+	dec	speed			; and increase the speed (by decreasing the sleep amount)
 
+.speedskip:
 	call	updatepiece
-	br	_upspskip
-_upsnb:
+	br	.pskip
+.alivetest:
 	call	testpixel		; check for collusion
-	bz	_upsalive
+	bz	.alive
 
-	mov	#0,snakelength
-	jmpf	_upsend
+	mov	#0,snakelength		; the snake is dead
+	jmpf	.end
 
-_upsalive:
+.alive:
 	call	putpixel
-_upspskip:
+.pskip:
 	ld	snakelength	; update "body"
 
 	st	c		; calculate how many bytes is used for the body
@@ -679,52 +689,52 @@ _upspskip:
 	div
 
 	mov	#2, b
-_upsloop:
+.loop:
 	ld	c
-	st	2		; number of bytes
-	inc	2
+	st	0		; number of bytes
+	inc	0
 
-	mov	#snakebody, 3	; address of the snakebody
+	mov	#snakebody, 1	; address of the snakebody
 
 	ld	b
-	be	#1, _upsskip1
+	be	#1, .skip1
 
 	ld	snakedir
 	rorc
-	br	_upsloop2
+	br	.loop2
 
-_upsskip1:
+.skip1:
 	ld	snakedir
 	ror
 	rorc
 
-_upsloop2:
-	ld	@R3
+.loop2:
+	ld	@R1
 	rorc
-	st	@R3
+	st	@R1
 
-	ld	2
-	bz	_upsskip
+	ld	0
+	bz	.skip
 
-	inc	3		; move on to next byte
-	dec	2		; decrease byte counter
-	ld	2		; test for zero
-	bnz	_upsloop2
-_upsskip:
+	inc	1		; move on to next byte
+	dec	0		; decrease byte counter
+	ld	0		; test for zero
+	bnz	.loop2
+.skip:
 	dec	b		; decrease pass counter
 	ld	b		; and check if we have done the two passes
-	bnz	_upsloop
+	bnz	.loop
 
 	ld	snakegleft	; check if the snake is growing
-	bnz	_upsgrow
+	bnz	.grow
 
 
 	mov	#snakebody, acc	; get byteoffset
 	add	c		; "c" has how many bytes the snake uses (-1)
-	st	2
+	st	0
 
-	ld	@R2
-	st	2
+	ld	@R0
+	st	0
 
 	mov	#0, acc		; calculate how many segments we should skip
 	mov	#4, b
@@ -734,31 +744,31 @@ _upsskip:
 	sub	c
 
 
-	st	3		; how many times we should "ror"
+	st	1		; how many times we should "ror"
 	mov	#3, acc
-	sub	3
+	sub	1
 	st	3
 
-	bz	_upsputend
-_upsloop3:
-	ld	2
+	bz	.putend
+.loop3:
+	ld	0
 	ror
 	ror
-	st	2
+	st	0
 	dec	3
 	ld	3
-	bnz	_upsloop3
+	bnz	.loop3
 
-_upsputend:
-	ld	2
+.putend:
+	ld	0
 	and	#%00000011
-	st	2
+	st	0
 
 	ld	snakeeoff
 	st	b
 	ld	snakeebyte
 	st	c
-	ld	2
+	ld	0
 	call	getnextpixel
 	ld	b
 	st	snakeeoff
@@ -766,13 +776,15 @@ _upsputend:
 	st	snakeebyte
 	call	putpixel
 
-	br	_upsend
-_upsgrow:
+	br	.end
+.grow:
 	inc	snakelength
 	dec	snakegleft
-_upsend:
+.end:
 	set1	ocr,5
 
+	pop	1
+	pop	0
 	pop	3
 	pop	2
 	pop	c
@@ -818,10 +830,10 @@ clrscr:
 	ret
 
 getkeys:
-	bp p7,0,quit
-	ld p3
-	bn acc,6,quit
-	bn acc,7,sleep
+	bp	p7,0,quit
+	ld	p3
+ 	bn	acc,6,quit
+	bn	acc,7,sleep
 	ret
 
 quit:
